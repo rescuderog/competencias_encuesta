@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Selecciona una Competencia - UCA{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+    <div class="text-center mb-12">
+        <h1 class="text-4xl font-bold text-uca-blue mb-4">Encuestas de Competencias</h1>
+        <p class="text-gray-600 text-lg">Selecciona la competencia en la que deseas votar</p>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-8">
+        <a href="{{ url_for('vote_page', slug='3mt-uca') }}"
+           class="group block p-8 bg-white border-2 border-gray-200 rounded-lg hover:border-uca-blue hover:shadow-lg transition-all duration-200">
+            <div class="text-center">
+                <h2 class="text-2xl font-semibold text-uca-blue mb-3 group-hover:text-opacity-80">3MT - UCA</h2>
+                <p class="text-gray-600">Three Minute Thesis</p>
+            </div>
+        </a>
+
+        <a href="{{ url_for('vote_page', slug='3min-uca-tfg') }}"
+           class="group block p-8 bg-white border-2 border-gray-200 rounded-lg hover:border-uca-blue hover:shadow-lg transition-all duration-200">
+            <div class="text-center">
+                <h2 class="text-2xl font-semibold text-uca-blue mb-3 group-hover:text-opacity-80">3min - UCA TFG</h2>
+                <p class="text-gray-600">Trabajo Final de Grado</p>
+            </div>
+        </a>
+    </div>
+</div>
+{% endblock %}

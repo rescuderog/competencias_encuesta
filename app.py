@@ -1,0 +1,202 @@
+import os
+from flask import Flask, render_template, request, jsonify, redirect, url_for, make_response
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
+import secrets
+import random
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', secrets.token_hex(16))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///voting.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['ADMIN_PASSWORD'] = os.environ.get('ADMIN_PASSWORD', 'admin123')
+
+db = SQLAlchemy(app)
+
+# Template context processor
+@app.context_processor
+def utility_processor():
+    def current_year():
+        return datetime.now().year
+    return dict(current_year=current_year)
+
+# Models
+class Competition(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), unique=True, nullable=False)
+    slug = db.Column(db.String(100), unique=True, nullable=False)
+    randomize_candidates = db.Column(db.Boolean, default=False)
+    candidates = db.relationship('Candidate', backref='competition', lazy=True, cascade='all, delete-orphan')
+
+class Candidate(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    competition_id = db.Column(db.Integer, db.ForeignKey('competition.id'), nullable=False)
+    votes = db.relationship('Vote', backref='candidate', lazy=True, cascade='all, delete-orphan')
+
+    def get_vote_count(self):
+        return len(self.votes)
+
+class Vote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    candidate_id = db.Column(db.Integer, db.ForeignKey('candidate.id'), nullable=False)
+    competition_id = db.Column(db.Integer, db.ForeignKey('competition.id'), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+# Initialize database
+with app.app_context():
+    db.create_all()
+    # Create competitions if they don't exist
+    if not Competition.query.filter_by(slug='3mt-uca').first():
+        comp1 = Competition(name='3MT - UCA', slug='3mt-uca')
+        db.session.add(comp1)
+    if not Competition.query.filter_by(slug='3min-uca-tfg').first():
+        comp2 = Competition(name='3min - UCA TFG', slug='3min-uca-tfg')
+        db.session.add(comp2)
+    db.session.commit()
+
+# Routes
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/vote/<slug>')
+def vote_page(slug):
+    competition = Competition.query.filter_by(slug=slug).first_or_404()
+
+    # Check if already voted
+    cookie_name = f'voted_{slug}'
+    has_voted = request.cookies.get(cookie_name)
+
+    candidates = list(competition.candidates)
+    if competition.randomize_candidates:
+        random.shuffle(candidates)
+
+    return render_template('vote.html',
+                         competition=competition,
+                         candidates=candidates,
+                         has_voted=has_voted)
+
+@app.route('/api/vote/<slug>', methods=['POST'])
+def submit_vote(slug):
+    competition = Competition.query.filter_by(slug=slug).first_or_404()
+
+    # Check if already voted
+    cookie_name = f'voted_{slug}'
+    if request.cookies.get(cookie_name):
+        return jsonify({'error': 'Ya has votado en esta competencia'}), 400
+
+    candidate_id = request.json.get('candidate_id')
+    if not candidate_id:
+        return jsonify({'error': 'Candidato no especificado'}), 400
+
+    candidate = Candidate.query.get(candidate_id)
+    if not candidate or candidate.competition_id != competition.id:
+        return jsonify({'error': 'Candidato inválido'}), 400
+
+    # Record vote
+    vote = Vote(candidate_id=candidate_id, competition_id=competition.id)
+    db.session.add(vote)
+    db.session.commit()
+
+    # Set cookie
+    response = make_response(jsonify({'success': True, 'message': '¡Gracias por votar!'}))
+    response.set_cookie(cookie_name, 'true', max_age=365*24*60*60)  # 1 year
+
+    return response
+
+@app.route('/dashboard')
+def dashboard():
+    return render_template('dashboard_login.html')
+
+@app.route('/dashboard/auth', methods=['POST'])
+def dashboard_auth():
+    password = request.form.get('password')
+    if password == app.config['ADMIN_PASSWORD']:
+        response = make_response(redirect(url_for('dashboard_main')))
+        response.set_cookie('admin_auth', app.config['ADMIN_PASSWORD'], max_age=24*60*60)
+        return response
+    return render_template('dashboard_login.html', error='Contraseña incorrecta')
+
+@app.route('/dashboard/main')
+def dashboard_main():
+    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+        return redirect(url_for('dashboard'))
+
+    competitions = Competition.query.all()
+    return render_template('dashboard.html', competitions=competitions)
+
+@app.route('/api/dashboard/candidate', methods=['POST'])
+def add_candidate():
+    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+        return jsonify({'error': 'No autorizado'}), 401
+
+    data = request.json
+    candidate = Candidate(
+        name=data['name'],
+        competition_id=data['competition_id']
+    )
+    db.session.add(candidate)
+    db.session.commit()
+
+    return jsonify({'success': True, 'candidate': {
+        'id': candidate.id,
+        'name': candidate.name,
+        'votes': 0
+    }})
+
+@app.route('/api/dashboard/candidate/<int:id>', methods=['DELETE'])
+def delete_candidate(id):
+    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+        return jsonify({'error': 'No autorizado'}), 401
+
+    candidate = Candidate.query.get_or_404(id)
+    db.session.delete(candidate)
+    db.session.commit()
+
+    return jsonify({'success': True})
+
+@app.route('/api/dashboard/competition/<int:id>/randomize', methods=['POST'])
+def toggle_randomize(id):
+    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+        return jsonify({'error': 'No autorizado'}), 401
+
+    competition = Competition.query.get_or_404(id)
+    competition.randomize_candidates = not competition.randomize_candidates
+    db.session.commit()
+
+    return jsonify({'success': True, 'randomize': competition.randomize_candidates})
+
+@app.route('/api/dashboard/stats/<int:competition_id>')
+def get_stats(competition_id):
+    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+        return jsonify({'error': 'No autorizado'}), 401
+
+    competition = Competition.query.get_or_404(competition_id)
+    candidates_with_votes = []
+
+    for candidate in competition.candidates:
+        candidates_with_votes.append({
+            'id': candidate.id,
+            'name': candidate.name,
+            'votes': candidate.get_vote_count()
+        })
+
+    # Sort by votes descending
+    candidates_with_votes.sort(key=lambda x: x['votes'], reverse=True)
+
+    return jsonify({
+        'competition': competition.name,
+        'candidates': candidates_with_votes,
+        'total_votes': sum(c['votes'] for c in candidates_with_votes)
+    })
+
+@app.route('/dashboard/logout')
+def logout():
+    response = make_response(redirect(url_for('dashboard')))
+    response.set_cookie('admin_auth', '', max_age=0)
+    return response
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)

@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Gestión{% endblock %}
+
+{% block nav_right %}
+<a href="{{ url_for('logout') }}" class="text-white hover:text-gray-200 font-medium">
+    Cerrar Sesión
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-uca-blue">Dashboard Administrativo</h1>
+        <p class="text-gray-600 mt-2">Gestiona las competencias y visualiza las estadísticas de votación</p>
+    </div>
+
+    {% for competition in competitions %}
+    <div class="bg-white rounded-lg shadow-md mb-8" x-data="competitionManager({{ competition.id }}, '{{ competition.name }}', {{ competition.randomize_candidates|tojson }})">
+        <div class="border-b border-gray-200 px-6 py-4">
+            <div class="flex justify-between items-center">
+                <h2 class="text-2xl font-semibold text-uca-blue">{{ competition.name }}</h2>
+                <div class="flex items-center space-x-4">
+                    <label class="flex items-center cursor-pointer">
+                        <input type="checkbox"
+                               x-model="randomize"
+                               @change="toggleRandomize()"
+                               class="w-5 h-5 text-uca-blue focus:ring-uca-blue rounded">
+                        <span class="ml-2 text-sm text-gray-700">Orden aleatorio</span>
+                    </label>
+                    <button @click="refreshStats()"
+                            class="text-uca-blue hover:text-opacity-80">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-6 p-6">
+            <!-- Statistics Panel -->
+            <div>
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Estadísticas de Votación</h3>
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <div class="mb-4">
+                        <p class="text-sm text-gray-600">Total de votos</p>
+                        <p class="text-3xl font-bold text-uca-blue" x-text="totalVotes"></p>
+                    </div>
+                    <div class="space-y-3">
+                        <template x-for="(candidate, index) in stats" :key="candidate.id">
+                            <div class="bg-white rounded p-3 border border-gray-200">
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="font-medium text-gray-800">
+                                        <span x-show="index === 0" class="text-yellow-500 mr-1">🥇</span>
+                                        <span x-show="index === 1" class="text-gray-400 mr-1">🥈</span>
+                                        <span x-show="index === 2" class="text-orange-600 mr-1">🥉</span>
+                                        <span x-text="candidate.name"></span>
+                                    </span>
+                                    <span class="text-uca-blue font-bold" x-text="candidate.votes + ' votos'"></span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2">
+                                    <div class="bg-uca-blue h-2 rounded-full transition-all duration-300"
+                                         :style="'width: ' + (totalVotes > 0 ? (candidate.votes / totalVotes * 100) : 0) + '%'"></div>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="stats.length === 0" class="text-gray-500 text-center py-4">
+                            No hay candidatos aún
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Candidate Management Panel -->
+            <div>
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Gestión de Candidatos</h3>
+
+                <!-- Add Candidate Form -->
+                <div class="mb-6">
+                    <div class="flex gap-2">
+                        <input type="text"
+                               x-model="newCandidateName"
+                               @keyup.enter="addCandidate()"
+                               placeholder="Nombre del candidato"
+                               class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-uca-blue">
+                        <button @click="addCandidate()"
+                                :disabled="!newCandidateName.trim()"
+                                class="px-4 py-2 bg-uca-blue text-white font-semibold rounded-lg hover:bg-opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">
+                            Agregar
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Candidates List -->
+                <div class="bg-gray-50 rounded-lg p-4 max-h-96 overflow-y-auto">
+                    <div class="space-y-2">
+                        <template x-for="candidate in stats" :key="candidate.id">
+                            <div class="bg-white rounded p-3 border border-gray-200 flex justify-between items-center">
+                                <span class="text-gray-800" x-text="candidate.name"></span>
+                                <button @click="deleteCandidate(candidate.id)"
+                                        class="text-red-600 hover:text-red-800">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+function competitionManager(competitionId, competitionName, initialRandomize) {
+    return {
+        competitionId: competitionId,
+        stats: [],
+        totalVotes: 0,
+        randomize: initialRandomize,
+        newCandidateName: '',
+
+        init() {
+            this.refreshStats();
+        },
+
+        async refreshStats() {
+            try {
+                const response = await fetch(`/api/dashboard/stats/${this.competitionId}`);
+                const data = await response.json();
+                this.stats = data.candidates;
+                this.totalVotes = data.total_votes;
+            } catch (error) {
+                console.error('Error fetching stats:', error);
+            }
+        },
+
+        async addCandidate() {
+            if (!this.newCandidateName.trim()) return;
+
+            try {
+                const response = await fetch('/api/dashboard/candidate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: this.newCandidateName,
+                        competition_id: this.competitionId
+                    })
+                });
+
+                if (response.ok) {
+                    this.newCandidateName = '';
+                    await this.refreshStats();
+                } else {
+                    alert('Error al agregar candidato');
+                }
+            } catch (error) {
+                console.error('Error adding candidate:', error);
+                alert('Error al agregar candidato');
+            }
+        },
+
+        async deleteCandidate(candidateId) {
+            if (!confirm('¿Estás seguro de eliminar este candidato? Se perderán todos sus votos.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/dashboard/candidate/${candidateId}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    await this.refreshStats();
+                } else {
+                    alert('Error al eliminar candidato');
+                }
+            } catch (error) {
+                console.error('Error deleting candidate:', error);
+                alert('Error al eliminar candidato');
+            }
+        },
+
+        async toggleRandomize() {
+            try {
+                const response = await fetch(`/api/dashboard/competition/${this.competitionId}/randomize`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    this.randomize = data.randomize;
+                } else {
+                    alert('Error al cambiar configuración');
+                    this.randomize = !this.randomize;
+                }
+            } catch (error) {
+                console.error('Error toggling randomize:', error);
+                alert('Error al cambiar configuración');
+                this.randomize = !this.randomize;
+            }
+        }
+    }
+}
+</script>
+{% endblock %}
