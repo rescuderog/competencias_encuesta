@@ -6,7 +6,8 @@
 <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
     <div class="text-center mb-10">
         <h1 class="text-3xl font-bold text-uca-blue mb-2">{{ competition.name }}</h1>
-        <p class="text-xl text-gray-700">¿Qué video te gustó más?</p>
+        <p class="text-xl text-gray-700 mb-2">¿Qué video te gustó más?</p>
+        <p class="text-sm text-gray-500">Selecciona exactamente 3 opciones</p>
     </div>
 
     {% if has_voted %}
@@ -21,19 +22,21 @@
         </a>
     </div>
     {% else %}
-    <div id="vote-form" x-data="{ selectedCandidate: null, submitting: false }">
+    <div id="vote-form" x-data="{ selectedCandidates: [], submitting: false }">
         {% if candidates %}
         <div class="space-y-3 mb-8">
             {% for candidate in candidates %}
             <label class="block cursor-pointer">
                 <div class="border-2 rounded-lg p-5 transition-all duration-200"
-                     :class="selectedCandidate === {{ candidate.id }} ? 'border-uca-blue bg-blue-50' : 'border-gray-200 hover:border-gray-300'">
+                     :class="selectedCandidates.includes({{ candidate.id }}) ? 'border-uca-blue bg-blue-50' : 'border-gray-200 hover:border-gray-300'">
                     <div class="flex items-center">
-                        <input type="radio"
+                        <input type="checkbox"
                                name="candidate"
                                value="{{ candidate.id }}"
-                               x-model="selectedCandidate"
-                               class="w-5 h-5 text-uca-blue focus:ring-uca-blue">
+                               @change="toggleCandidate({{ candidate.id }})"
+                               :checked="selectedCandidates.includes({{ candidate.id }})"
+                               :disabled="!selectedCandidates.includes({{ candidate.id }}) && selectedCandidates.length >= 3"
+                               class="w-5 h-5 text-uca-blue focus:ring-uca-blue rounded disabled:opacity-50">
                         <span class="ml-4 text-lg text-gray-800">{{ candidate.name }}</span>
                     </div>
                 </div>
@@ -41,10 +44,13 @@
             {% endfor %}
         </div>
 
-        <div class="text-center">
+        <div class="text-center mb-4">
+            <p class="text-sm text-gray-600 mb-4">
+                <span x-text="selectedCandidates.length"></span> de 3 seleccionados
+            </p>
             <button type="button"
                     @click="submitVote()"
-                    :disabled="!selectedCandidate || submitting"
+                    :disabled="selectedCandidates.length !== 3 || submitting"
                     class="px-8 py-3 bg-uca-blue text-white font-semibold rounded-lg hover:bg-opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                 <span x-show="!submitting">Enviar Voto</span>
                 <span x-show="submitting">Enviando...</span>
@@ -58,9 +64,22 @@
         </div>
 
         <script>
+            function toggleCandidate(candidateId) {
+                const component = Alpine.$data(document.getElementById('vote-form'));
+                const index = component.selectedCandidates.indexOf(candidateId);
+
+                if (index > -1) {
+                    component.selectedCandidates.splice(index, 1);
+                } else {
+                    if (component.selectedCandidates.length < 3) {
+                        component.selectedCandidates.push(candidateId);
+                    }
+                }
+            }
+
             function submitVote() {
                 const component = Alpine.$data(document.getElementById('vote-form'));
-                if (!component.selectedCandidate) return;
+                if (component.selectedCandidates.length !== 3) return;
 
                 component.submitting = true;
 
@@ -70,7 +89,7 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        candidate_id: component.selectedCandidate
+                        candidate_ids: component.selectedCandidates
                     })
                 })
                 .then(response => response.json())

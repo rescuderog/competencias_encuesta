@@ -44,16 +44,27 @@ class Vote(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
 # Initialize database
-with app.app_context():
-    db.create_all()
-    # Create competitions if they don't exist
-    if not Competition.query.filter_by(slug='3mt-uca').first():
-        comp1 = Competition(name='3MT - UCA', slug='3mt-uca')
-        db.session.add(comp1)
-    if not Competition.query.filter_by(slug='3min-uca-tfg').first():
-        comp2 = Competition(name='3min - UCA TFG', slug='3min-uca-tfg')
-        db.session.add(comp2)
-    db.session.commit()
+def init_db():
+    with app.app_context():
+        db.create_all()
+        # Create competitions if they don't exist
+        comp1 = Competition.query.filter_by(slug='3mt-uca').first()
+        if not comp1:
+            comp1 = Competition(name='3MT - UCA', slug='3mt-uca')
+            db.session.add(comp1)
+
+        comp2 = Competition.query.filter_by(slug='3min-uca-tfg').first()
+        if not comp2:
+            comp2 = Competition(name='3min - UCA TFG', slug='3min-uca-tfg')
+            db.session.add(comp2)
+
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"Database initialization warning: {e}")
+
+init_db()
 
 # Routes
 @app.route('/')
@@ -86,17 +97,25 @@ def submit_vote(slug):
     if request.cookies.get(cookie_name):
         return jsonify({'error': 'Ya has votado en esta competencia'}), 400
 
-    candidate_id = request.json.get('candidate_id')
-    if not candidate_id:
-        return jsonify({'error': 'Candidato no especificado'}), 400
+    candidate_ids = request.json.get('candidate_ids')
+    if not candidate_ids or not isinstance(candidate_ids, list):
+        return jsonify({'error': 'Candidatos no especificados'}), 400
 
-    candidate = Candidate.query.get(candidate_id)
-    if not candidate or candidate.competition_id != competition.id:
-        return jsonify({'error': 'Candidato inválido'}), 400
+    # Validate exactly 3 candidates
+    if len(candidate_ids) != 3:
+        return jsonify({'error': 'Debes seleccionar exactamente 3 candidatos'}), 400
 
-    # Record vote
-    vote = Vote(candidate_id=candidate_id, competition_id=competition.id)
-    db.session.add(vote)
+    # Validate all candidates exist and belong to this competition
+    for candidate_id in candidate_ids:
+        candidate = Candidate.query.get(candidate_id)
+        if not candidate or candidate.competition_id != competition.id:
+            return jsonify({'error': 'Candidato inválido'}), 400
+
+    # Record votes (all votes have equal weight)
+    for candidate_id in candidate_ids:
+        vote = Vote(candidate_id=candidate_id, competition_id=competition.id)
+        db.session.add(vote)
+
     db.session.commit()
 
     # Set cookie
