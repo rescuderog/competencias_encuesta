@@ -10,5 +10,9 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
     volumes:
-      - ./instance:/app/instance
+      - db_data:/app/instance
     restart: unless-stopped
+
+volumes:
+  db_data:
+    driver: local
