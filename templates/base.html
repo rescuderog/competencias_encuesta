@@ -29,7 +29,9 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
                 <div class="flex items-center">
+                    {% block logo %}
                     <img src="{{ url_for('static', filename='logo_vri.png') }}" alt="VRI Logo" class="h-12">
+                    {% endblock %}
                 </div>
                 {% block nav_right %}{% endblock %}
             </div>

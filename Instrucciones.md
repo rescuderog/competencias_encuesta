@@ -1,10 +1,10 @@
 # Aplicación de encuestas del Vicerrectorado de Investigación de la Universidad Católica Argentina
 
-Hola Claude! Hoy necesitaríamos crear una aplicación que permita elegir a la gente su candidato favorito en dos competencias: una llamada 3MT - UCA y otra llamada 3min - UCA TFG. La encuesta es anónima, pero necesitaríamos asegurarnos que sólo se pueda votar una vez por navegador (entiendo que el camino más fácil es poner una cookie).
+Hola Claude! Hoy necesitaríamos crear una aplicación que permita elegir a la gente sus candidatos favoritos (deben seleccionar de la lista 3 opciones que cuentan como 1 voto para cada candidato seleccionado) en dos competencias: una llamada 3MT - UCA y otra llamada 3min - UCA TFG. La encuesta es anónima, pero necesitaríamos asegurarnos que sólo se pueda votar una vez por navegador (entiendo que el camino más fácil es poner una cookie).
 
 Tiene que tener la vista de encuesta o bien votación, y la vista de dashboard que puede estar protegida con un password simple (configurable mediante variable de entorno), no tiene por qué tener sistema de usuarios. El dashboard tiene que permitir agregar o sacar candidatos, para organizar la votación.
 
-Las competencias se hacen por separado, por lo que es necesario que cada página de votación sea independiente de la otra. Es decir, poder compartir un link por cada competencia y que no tenga información de la otra.
+Las competencias se hacen por separado, por lo que es necesario que cada página de votación sea independiente de la otra. Es decir, poder compartir un link por cada competencia y que no tenga información de la otra. No tiene que tener botón de volver al inicio o botón de home, directamente el link que compartamos tiene que ser único para cada competencia y sin relación con nada más del website.
 
 La encuesta tiene una sola pregunta: "¿Qué video te gustó más?" y luego la lista de candidatos uno abajo de otro. Mediante el dashboard tiene que estar la opción de randomizar o no el assortment de candidatos.
 
