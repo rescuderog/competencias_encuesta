@@ -125,6 +125,10 @@ function competitionManager(competitionId, competitionName, initialRandomize) {
 
         init() {
             this.refreshStats();
+            // Auto-refresh every 5 seconds
+            setInterval(() => {
+                this.refreshStats();
+            }, 5000);
         },
 
         async refreshStats() {
