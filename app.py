@@ -7,7 +7,7 @@ import random
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', secrets.token_hex(16))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///voting.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['ADMIN_PASSWORD'] = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
@@ -43,6 +43,50 @@ class Vote(db.Model):
     competition_id = db.Column(db.Integer, db.ForeignKey('competition.id'), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
+# Load candidates from txt file
+def load_candidates_from_file(competition_slug):
+    """Load candidates from a txt file (one candidate per line)"""
+    filename = f'candidates_{competition_slug}.txt'
+    if not os.path.exists(filename):
+        return None
+
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            candidates = [line.strip() for line in f if line.strip()]
+        return candidates
+    except Exception as e:
+        print(f"Error reading {filename}: {e}")
+        return None
+
+def sync_candidates_from_file(competition):
+    """Sync candidates from txt file to database"""
+    candidates_list = load_candidates_from_file(competition.slug)
+    if candidates_list is None:
+        return  # No file, skip sync
+
+    # Get current candidates in DB
+    current_candidates = {c.name: c for c in competition.candidates}
+    file_candidates_set = set(candidates_list)
+
+    # Remove candidates not in file
+    for name, candidate in current_candidates.items():
+        if name not in file_candidates_set:
+            db.session.delete(candidate)
+            print(f"Removed candidate: {name} from {competition.name}")
+
+    # Add new candidates from file
+    for name in candidates_list:
+        if name not in current_candidates:
+            new_candidate = Candidate(name=name, competition_id=competition.id)
+            db.session.add(new_candidate)
+            print(f"Added candidate: {name} to {competition.name}")
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error syncing candidates for {competition.name}: {e}")
+
 # Initialize database
 def init_db():
     with app.app_context():
@@ -63,6 +107,15 @@ def init_db():
         except Exception as e:
             db.session.rollback()
             print(f"Database initialization warning: {e}")
+
+        # Sync candidates from txt files if they exist
+        comp1 = Competition.query.filter_by(slug='3mt-uca').first()
+        comp2 = Competition.query.filter_by(slug='3min-uca-tfg').first()
+
+        if comp1:
+            sync_candidates_from_file(comp1)
+        if comp2:
+            sync_candidates_from_file(comp2)
 
 init_db()
 
