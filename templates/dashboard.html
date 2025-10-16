@@ -28,6 +28,10 @@
                                class="w-5 h-5 text-uca-blue focus:ring-uca-blue rounded">
                         <span class="ml-2 text-sm text-gray-700">Orden aleatorio</span>
                     </label>
+                    <button @click="resetVotes()"
+                            class="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 font-medium">
+                        Resetear votos
+                    </button>
                     <button @click="refreshStats()"
                             class="text-uca-blue hover:text-opacity-80">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -207,6 +211,33 @@ function competitionManager(competitionId, competitionName, initialRandomize) {
                 console.error('Error toggling randomize:', error);
                 alert('Error al cambiar configuración');
                 this.randomize = !this.randomize;
+            }
+        },
+
+        async resetVotes() {
+            if (!confirm('⚠️ ¿Estás seguro de eliminar TODOS los votos de esta competencia?\n\nEsta acción NO se puede deshacer.')) {
+                return;
+            }
+
+            // Double confirmation for safety
+            if (!confirm('Esta es tu última oportunidad. ¿Confirmas que deseas eliminar todos los votos?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/dashboard/competition/${this.competitionId}/reset-votes`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    alert('✅ Votos eliminados correctamente');
+                    await this.refreshStats();
+                } else {
+                    alert('Error al eliminar votos');
+                }
+            } catch (error) {
+                console.error('Error resetting votes:', error);
+                alert('Error al eliminar votos');
             }
         }
     }

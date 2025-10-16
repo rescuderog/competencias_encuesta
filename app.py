@@ -69,7 +69,22 @@ init_db()
 # Routes
 @app.route('/')
 def index():
+    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+        return redirect(url_for('index_login'))
     return render_template('index.html')
+
+@app.route('/login')
+def index_login():
+    return render_template('index_login.html')
+
+@app.route('/login/auth', methods=['POST'])
+def index_auth():
+    password = request.form.get('password')
+    if password == app.config['ADMIN_PASSWORD']:
+        response = make_response(redirect(url_for('index')))
+        response.set_cookie('admin_auth', app.config['ADMIN_PASSWORD'], max_age=24*60*60)
+        return response
+    return render_template('index_login.html', error='Contraseña incorrecta')
 
 @app.route('/vote/<slug>')
 def vote_page(slug):
@@ -209,6 +224,19 @@ def get_stats(competition_id):
         'candidates': candidates_with_votes,
         'total_votes': sum(c['votes'] for c in candidates_with_votes)
     })
+
+@app.route('/api/dashboard/competition/<int:id>/reset-votes', methods=['POST'])
+def reset_votes(id):
+    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+        return jsonify({'error': 'No autorizado'}), 401
+
+    competition = Competition.query.get_or_404(id)
+
+    # Delete all votes for this competition
+    Vote.query.filter_by(competition_id=id).delete()
+    db.session.commit()
+
+    return jsonify({'success': True, 'message': 'Votos eliminados correctamente'})
 
 @app.route('/dashboard/logout')
 def logout():
