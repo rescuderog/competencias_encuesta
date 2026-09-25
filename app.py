@@ -1,15 +1,32 @@
 import os
-from flask import Flask, render_template, request, jsonify, redirect, url_for, make_response
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from datetime import datetime, timedelta
+import hmac
 import secrets
 import random
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', secrets.token_hex(16))
+
+_secret_key = os.environ.get('SECRET_KEY')
+if not _secret_key:
+    # Sin SECRET_KEY estable cada worker de gunicorn firma con una clave distinta
+    # y las sesiones (marca de "ya votó", login del admin) se pierden entre requests.
+    print("WARNING: SECRET_KEY no configurada; usando clave aleatoria (no apto para producción)")
+    _secret_key = secrets.token_hex(32)
+app.config['SECRET_KEY'] = _secret_key
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# pool_pre_ping: si Postgres cerró una conexión ociosa, se reabre en vez de devolver un 500.
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True}
 app.config['ADMIN_PASSWORD'] = os.environ.get('ADMIN_PASSWORD', 'admin123')
+
+# Cookie de sesión firmada: el cliente no puede leerla ni fabricarla.
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+# En Railway (HTTPS) conviene SESSION_COOKIE_SECURE=1; en local con http debe quedar en 0.
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', '0') == '1'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=365)
 
 db = SQLAlchemy(app)
 
@@ -119,6 +136,49 @@ def init_db():
 
 init_db()
 
+# Gunicorn corre con --preload: init_db() se ejecuta una sola vez en el proceso maestro
+# (evita que N workers sincronicen candidatos a la vez y los dupliquen). Antes del fork
+# hay que soltar las conexiones abiertas para que cada worker abra las suyas.
+with app.app_context():
+    db.engine.dispose()
+
+# Session helpers
+def is_admin():
+    return session.get('admin') is True
+
+def get_or_create_vote_token(slug):
+    """Token por competencia guardado en la sesión firmada.
+
+    Solo lo obtiene quien carga la página de votación con un cliente que
+    conserva la cookie de sesión. Se consume al votar, así que cada token
+    sirve para un único POST.
+    """
+    tokens = session.get('vote_tokens', {})
+    if slug not in tokens:
+        tokens[slug] = secrets.token_urlsafe(32)
+        session['vote_tokens'] = tokens
+        session.permanent = True
+    return tokens[slug]
+
+def consume_vote_token(slug, provided):
+    tokens = session.get('vote_tokens', {})
+    expected = tokens.get(slug)
+    if not expected or not isinstance(provided, str) or not hmac.compare_digest(expected, provided):
+        return False
+    tokens.pop(slug, None)
+    session['vote_tokens'] = tokens
+    return True
+
+def has_voted(slug):
+    return slug in session.get('voted', [])
+
+def mark_voted(slug):
+    voted = list(session.get('voted', []))
+    if slug not in voted:
+        voted.append(slug)
+    session['voted'] = voted
+    session.permanent = True
+
 # Routes
 @app.route('/')
 def index():
@@ -143,9 +203,8 @@ def index_auth():
 def vote_page(slug):
     competition = Competition.query.filter_by(slug=slug).first_or_404()
 
-    # Check if already voted
-    cookie_name = f'voted_{slug}'
-    has_voted = request.cookies.get(cookie_name)
+    already_voted = has_voted(slug)
+    vote_token = None if already_voted else get_or_create_vote_token(slug)
 
     candidates = list(competition.candidates)
     if competition.randomize_candidates:
@@ -154,24 +213,34 @@ def vote_page(slug):
     return render_template('vote.html',
                          competition=competition,
                          candidates=candidates,
-                         has_voted=has_voted)
+                         has_voted=already_voted,
+                         vote_token=vote_token)
 
 @app.route('/api/vote/<slug>', methods=['POST'])
 def submit_vote(slug):
     competition = Competition.query.filter_by(slug=slug).first_or_404()
 
-    # Check if already voted
-    cookie_name = f'voted_{slug}'
-    if request.cookies.get(cookie_name):
+    if has_voted(slug):
         return jsonify({'error': 'Ya has votado en esta competencia'}), 400
 
-    candidate_ids = request.json.get('candidate_ids')
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Solicitud inválida'}), 400
+
+    # El token solo existe en la sesión de quien cargó la página de votación.
+    # Un POST directo sin sesión (curl, script) no lo tiene y se rechaza acá.
+    if not consume_vote_token(slug, data.get('vote_token')):
+        return jsonify({'error': 'Sesión de votación inválida. Recargá la página e intentá de nuevo.'}), 403
+
+    candidate_ids = data.get('candidate_ids')
     if not candidate_ids or not isinstance(candidate_ids, list):
         return jsonify({'error': 'Candidatos no especificados'}), 400
 
-    # Validate exactly 3 candidates
-    if len(candidate_ids) != 3:
-        return jsonify({'error': 'Debes seleccionar exactamente 3 candidatos'}), 400
+    # Validate exactly 3 distinct candidates
+    if not all(isinstance(cid, int) and not isinstance(cid, bool) for cid in candidate_ids):
+        return jsonify({'error': 'Candidato inválido'}), 400
+    if len(candidate_ids) != 3 or len(set(candidate_ids)) != 3:
+        return jsonify({'error': 'Debes seleccionar exactamente 3 candidatos distintos'}), 400
 
     # Validate all candidates exist and belong to this competition
     for candidate_id in candidate_ids:
@@ -186,11 +255,8 @@ def submit_vote(slug):
 
     db.session.commit()
 
-    # Set cookie
-    response = make_response(jsonify({'success': True, 'message': '¡Gracias por votar!'}))
-    response.set_cookie(cookie_name, 'true', max_age=365*24*60*60)  # 1 year
-
-    return response
+    mark_voted(slug)
+    return jsonify({'success': True, 'message': '¡Gracias por votar!'})
 
 @app.route('/dashboard')
 def dashboard():
@@ -198,16 +264,15 @@ def dashboard():
 
 @app.route('/dashboard/auth', methods=['POST'])
 def dashboard_auth():
-    password = request.form.get('password')
-    if password == app.config['ADMIN_PASSWORD']:
-        response = make_response(redirect(url_for('dashboard_main')))
-        response.set_cookie('admin_auth', app.config['ADMIN_PASSWORD'], max_age=24*60*60)
-        return response
+    password = request.form.get('password') or ''
+    if hmac.compare_digest(password, app.config['ADMIN_PASSWORD']):
+        session['admin'] = True
+        return redirect(url_for('dashboard_main'))
     return render_template('dashboard_login.html', error='Contraseña incorrecta')
 
 @app.route('/dashboard/main')
 def dashboard_main():
-    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+    if not is_admin():
         return redirect(url_for('dashboard'))
 
     competitions = Competition.query.all()
@@ -215,7 +280,7 @@ def dashboard_main():
 
 @app.route('/api/dashboard/candidate', methods=['POST'])
 def add_candidate():
-    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+    if not is_admin():
         return jsonify({'error': 'No autorizado'}), 401
 
     data = request.json
@@ -234,7 +299,7 @@ def add_candidate():
 
 @app.route('/api/dashboard/candidate/<int:id>', methods=['DELETE'])
 def delete_candidate(id):
-    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+    if not is_admin():
         return jsonify({'error': 'No autorizado'}), 401
 
     candidate = Candidate.query.get_or_404(id)
@@ -245,7 +310,7 @@ def delete_candidate(id):
 
 @app.route('/api/dashboard/competition/<int:id>/randomize', methods=['POST'])
 def toggle_randomize(id):
-    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+    if not is_admin():
         return jsonify({'error': 'No autorizado'}), 401
 
     competition = Competition.query.get_or_404(id)
@@ -256,7 +321,7 @@ def toggle_randomize(id):
 
 @app.route('/api/dashboard/stats/<int:competition_id>')
 def get_stats(competition_id):
-    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+    if not is_admin():
         return jsonify({'error': 'No autorizado'}), 401
 
     competition = Competition.query.get_or_404(competition_id)
@@ -293,9 +358,8 @@ def reset_votes(id):
 
 @app.route('/dashboard/logout')
 def logout():
-    response = make_response(redirect(url_for('dashboard')))
-    response.set_cookie('admin_auth', '', max_age=0)
-    return response
+    session.pop('admin', None)
+    return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

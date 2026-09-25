@@ -55,7 +55,8 @@ Variables de entorno disponibles:
 | Variable | Descripción | Valor por defecto |
 |----------|-------------|-------------------|
 | `ADMIN_PASSWORD` | Contraseña del dashboard administrativo | `admin123` |
-| `SECRET_KEY` | Clave secreta de Flask | Auto-generada |
+| `SECRET_KEY` | Clave secreta de Flask. **Obligatoria en producción**: firma la cookie de sesión. | Auto-generada (solo válida con 1 worker) |
+| `SESSION_COOKIE_SECURE` | `1` para enviar la cookie solo por HTTPS (Railway). `0` en local. | `0` |
 | `PORT` | Puerto del servidor | `5000` |
 
 ## Uso
@@ -84,6 +85,7 @@ Desde el dashboard puedes:
 3. Configura las variables de entorno:
    - `ADMIN_PASSWORD`: Tu contraseña segura
    - `SECRET_KEY`: Una clave secreta aleatoria
+   - `SESSION_COOKIE_SECURE`: `1`
 4. Railway asignará automáticamente el puerto (variable `PORT`)
 
 ## Estructura del Proyecto
@@ -107,9 +109,11 @@ competencias_encuesta/
 
 ## Seguridad
 
-- Las votaciones están limitadas a una por navegador mediante cookies
-- El dashboard está protegido con contraseña
-- Las cookies de autenticación expiran en 24 horas
+- Las votaciones están limitadas a una por navegador mediante una sesión firmada (cookie `HttpOnly`, `SameSite=Lax`)
+- El endpoint de voto exige un token de un solo uso que solo se emite al cargar la página de votación; un `POST` directo sin sesión se rechaza con `403`
+- Cada voto debe contener exactamente 3 candidatos distintos de la misma competencia
+- El dashboard está protegido con contraseña; la sesión del admin también va en la cookie firmada, nunca la contraseña en claro
+- Limitación conocida: la sesión vive en el navegador, así que una ventana de incógnito sigue contando como votante nuevo. Cerrar eso requiere identidad (login), no cookies.
 - En producción, asegúrate de cambiar `ADMIN_PASSWORD` y `SECRET_KEY`
 
 ## Licencia

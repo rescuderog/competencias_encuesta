@@ -17,4 +17,4 @@ ENV PORT=5000
 EXPOSE $PORT
 
 # Run with gunicorn
-CMD gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 app:app
+CMD gunicorn --bind 0.0.0.0:$PORT --preload --workers ${WEB_CONCURRENCY:-4} --timeout 60 app:app

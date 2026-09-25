@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   web:
     build: .
@@ -7,11 +5,28 @@ services:
       - "5000:5000"
     environment:
       - PORT=5000
+      - DATABASE_URL=postgresql://encuesta:encuesta@db:5432/encuesta
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
-    volumes:
-      - db_data:/app/instance
+      - SESSION_COOKIE_SECURE=0
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=encuesta
+      - POSTGRES_PASSWORD=encuesta
+      - POSTGRES_DB=encuesta
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U encuesta"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
 volumes:
   db_data:

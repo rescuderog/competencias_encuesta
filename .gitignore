@@ -13,3 +13,6 @@ venv/
 instance/
 .env
 .DS_Store
+
+# Locust stress test
+locustfile.py

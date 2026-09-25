@@ -86,7 +86,8 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        candidate_ids: component.selectedCandidates
+                        candidate_ids: component.selectedCandidates,
+                        vote_token: {{ vote_token | tojson }}
                     })
                 })
                 .then(response => response.json())
