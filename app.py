@@ -182,7 +182,7 @@ def mark_voted(slug):
 # Routes
 @app.route('/')
 def index():
-    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+    if not is_admin():
         return redirect(url_for('index_login'))
     return render_template('index.html')
 
@@ -192,11 +192,10 @@ def index_login():
 
 @app.route('/login/auth', methods=['POST'])
 def index_auth():
-    password = request.form.get('password')
-    if password == app.config['ADMIN_PASSWORD']:
-        response = make_response(redirect(url_for('index')))
-        response.set_cookie('admin_auth', app.config['ADMIN_PASSWORD'], max_age=24*60*60)
-        return response
+    password = request.form.get('password') or ''
+    if hmac.compare_digest(password, app.config['ADMIN_PASSWORD']):
+        session['admin'] = True
+        return redirect(url_for('index'))
     return render_template('index_login.html', error='Contraseña incorrecta')
 
 @app.route('/vote/<slug>')
@@ -345,7 +344,7 @@ def get_stats(competition_id):
 
 @app.route('/api/dashboard/competition/<int:id>/reset-votes', methods=['POST'])
 def reset_votes(id):
-    if request.cookies.get('admin_auth') != app.config['ADMIN_PASSWORD']:
+    if not is_admin():
         return jsonify({'error': 'No autorizado'}), 401
 
     competition = Competition.query.get_or_404(id)
