@@ -15,7 +15,14 @@ if not _secret_key:
     print("WARNING: SECRET_KEY no configurada; usando clave aleatoria (no apto para producción)")
     _secret_key = secrets.token_hex(32)
 app.config['SECRET_KEY'] = _secret_key
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+# Forzar el driver psycopg2: desde SQLAlchemy 2.1 "postgresql://" a secas elige psycopg 3,
+# que no está instalado. Railway a veces entrega "postgres://", que SQLAlchemy 2 no acepta.
+_db_url = os.environ.get('DATABASE_URL', '')
+if _db_url.startswith('postgres://'):
+    _db_url = 'postgresql://' + _db_url[len('postgres://'):]
+if _db_url.startswith('postgresql://'):
+    _db_url = 'postgresql+psycopg2://' + _db_url[len('postgresql://'):]
+app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # pool_pre_ping: si Postgres cerró una conexión ociosa, se reabre en vez de devolver un 500.
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True}
