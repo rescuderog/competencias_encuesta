@@ -16,11 +16,21 @@
     </div>
 
     {% for competition in competitions %}
-    <div class="bg-white rounded-lg shadow-md mb-8" x-data="competitionManager({{ competition.id }}, '{{ competition.name }}', {{ competition.randomize_candidates|tojson }})">
+    <div class="bg-white rounded-lg shadow-md mb-8" x-data="competitionManager({{ competition.id }}, '{{ competition.name }}', {{ competition.randomize_candidates|tojson }}, {{ competition.voting_open|tojson }})">
         <div class="border-b border-gray-200 px-6 py-4">
-            <div class="flex justify-between items-center">
-                <h2 class="text-2xl font-semibold text-uca-blue">{{ competition.name }}</h2>
+            <div class="flex justify-between items-center flex-wrap gap-3">
+                <div class="flex items-center gap-3">
+                    <h2 class="text-2xl font-semibold text-uca-blue">{{ competition.name }}</h2>
+                    <span class="px-3 py-1 rounded-full text-sm font-semibold"
+                          :class="votingOpen ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'"
+                          x-text="votingOpen ? 'Votación abierta' : 'Votación cerrada'"></span>
+                </div>
                 <div class="flex items-center space-x-4">
+                    <button @click="toggleVoting()"
+                            class="px-4 py-2 text-sm text-white rounded font-semibold"
+                            :class="votingOpen ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'"
+                            x-text="votingOpen ? 'Cerrar votación' : 'Abrir votación'">
+                    </button>
                     <label class="flex items-center cursor-pointer">
                         <input type="checkbox"
                                x-model="randomize"
@@ -119,12 +129,13 @@
 </div>
 
 <script>
-function competitionManager(competitionId, competitionName, initialRandomize) {
+function competitionManager(competitionId, competitionName, initialRandomize, initialVotingOpen) {
     return {
         competitionId: competitionId,
         stats: [],
         totalVotes: 0,
         randomize: initialRandomize,
+        votingOpen: initialVotingOpen,
         newCandidateName: '',
 
         init() {
@@ -141,6 +152,9 @@ function competitionManager(competitionId, competitionName, initialRandomize) {
                 const data = await response.json();
                 this.stats = data.candidates;
                 this.totalVotes = data.total_votes;
+                if (typeof data.voting_open === 'boolean') {
+                    this.votingOpen = data.voting_open;
+                }
             } catch (error) {
                 console.error('Error fetching stats:', error);
             }
@@ -211,6 +225,29 @@ function competitionManager(competitionId, competitionName, initialRandomize) {
                 console.error('Error toggling randomize:', error);
                 alert('Error al cambiar configuración');
                 this.randomize = !this.randomize;
+            }
+        },
+
+        async toggleVoting() {
+            const action = this.votingOpen ? 'CERRAR' : 'ABRIR';
+            if (!confirm(`¿${action} la votación de ${competitionName}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/dashboard/competition/${this.competitionId}/toggle-voting`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    this.votingOpen = data.voting_open;
+                } else {
+                    alert('Error al cambiar el estado de la votación');
+                }
+            } catch (error) {
+                console.error('Error toggling voting:', error);
+                alert('Error al cambiar el estado de la votación');
             }
         },
 

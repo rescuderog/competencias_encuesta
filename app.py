@@ -51,6 +51,8 @@ class Competition(db.Model):
     name = db.Column(db.String(100), unique=True, nullable=False)
     slug = db.Column(db.String(100), unique=True, nullable=False)
     randomize_candidates = db.Column(db.Boolean, default=False)
+    # Abierta por defecto: si nadie toca el toggle, se comporta como siempre.
+    voting_open = db.Column(db.Boolean, nullable=False, default=True, server_default=db.text('true'))
     candidates = db.relationship('Candidate', backref='competition', lazy=True, cascade='all, delete-orphan')
 
 class Candidate(db.Model):
@@ -113,9 +115,21 @@ def sync_candidates_from_file(competition):
         print(f"Error syncing candidates for {competition.name}: {e}")
 
 # Initialize database
+def ensure_columns():
+    """create_all() no agrega columnas a tablas que ya existen: migración mínima."""
+    inspector = db.inspect(db.engine)
+    if 'competition' not in inspector.get_table_names():
+        return
+    existing = {c['name'] for c in inspector.get_columns('competition')}
+    if 'voting_open' not in existing:
+        with db.engine.begin() as conn:
+            conn.execute(db.text('ALTER TABLE competition ADD COLUMN voting_open BOOLEAN NOT NULL DEFAULT TRUE'))
+        print("Added column competition.voting_open")
+
 def init_db():
     with app.app_context():
         db.create_all()
+        ensure_columns()
         # Create competitions if they don't exist
         comp1 = Competition.query.filter_by(slug='3mt-uca').first()
         if not comp1:
@@ -227,7 +241,14 @@ def vote_page(slug):
                          competition=competition,
                          candidates=candidates,
                          has_voted=already_voted,
+                         voting_open=competition.voting_open,
                          vote_token=vote_token)
+
+@app.route('/api/competition/<slug>/status')
+def competition_status(slug):
+    """Público: la página de votación cerrada lo consulta para recargarse al abrir."""
+    competition = Competition.query.filter_by(slug=slug).first_or_404()
+    return jsonify({'voting_open': competition.voting_open})
 
 @app.route('/api/vote/<slug>', methods=['POST'])
 def submit_vote(slug):
@@ -235,6 +256,9 @@ def submit_vote(slug):
 
     if has_voted(slug):
         return jsonify({'error': 'Ya has votado en esta competencia'}), 400
+
+    if not competition.voting_open:
+        return jsonify({'error': 'La votación está cerrada en este momento'}), 403
 
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
@@ -332,6 +356,17 @@ def toggle_randomize(id):
 
     return jsonify({'success': True, 'randomize': competition.randomize_candidates})
 
+@app.route('/api/dashboard/competition/<int:id>/toggle-voting', methods=['POST'])
+def toggle_voting(id):
+    if not is_admin():
+        return jsonify({'error': 'No autorizado'}), 401
+
+    competition = Competition.query.get_or_404(id)
+    competition.voting_open = not competition.voting_open
+    db.session.commit()
+
+    return jsonify({'success': True, 'voting_open': competition.voting_open})
+
 @app.route('/api/dashboard/stats/<int:competition_id>')
 def get_stats(competition_id):
     if not is_admin():
@@ -352,6 +387,7 @@ def get_stats(competition_id):
 
     return jsonify({
         'competition': competition.name,
+        'voting_open': competition.voting_open,
         'candidates': candidates_with_votes,
         'total_votes': sum(c['votes'] for c in candidates_with_votes)
     })
