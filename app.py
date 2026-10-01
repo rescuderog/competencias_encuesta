@@ -3,6 +3,7 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, s
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 import hmac
+import re
 import secrets
 import random
 
@@ -149,6 +150,10 @@ init_db()
 with app.app_context():
     db.engine.dispose()
 
+def candidate_sort_key(candidate):
+    match = re.match(r'\s*(\d+)', candidate.name)
+    return (0, int(match.group(1)), candidate.name) if match else (1, 0, candidate.name)
+
 # Session helpers
 def is_admin():
     return session.get('admin') is True
@@ -212,7 +217,9 @@ def vote_page(slug):
     already_voted = has_voted(slug)
     vote_token = None if already_voted else get_or_create_vote_token(slug)
 
-    candidates = list(competition.candidates)
+    # Orden por el número con que empieza el nombre ("3. Apellido, Nombre"), no por
+    # el id de la base: al reordenar el txt los renombrados se recrean con ids nuevos.
+    candidates = sorted(competition.candidates, key=candidate_sort_key)
     if competition.randomize_candidates:
         random.shuffle(candidates)
 
